@@ -13,6 +13,9 @@ typedef struct {
     char **packets;
 } xmp_rdata;
 
+extern int xmp_writable_padding; // 2000 recommended by XMP spec; 1 most compact
+
+
 xmp_rdata xmp_from_gif(const char *filename);
 xmp_rdata xmp_from_isobmf(const char *filename);
 xmp_rdata xmp_from_jpeg(const char *filename);

@@ -4,6 +4,9 @@
 const char *xmp_to_write = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF  xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><rdf:Description rdf:about=""><dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Demo XMP content</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>";
 
 int main(int argc, char *argv[]) {
+    
+    // xmp_writable_padding = 1; // uncomment for more compact output
+    
     for(int i=1; i<argc; i+=1) {
         xmp_rdata dat = xmp_from_gif(argv[i]);
         if (dat.width) {

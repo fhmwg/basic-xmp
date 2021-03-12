@@ -6,6 +6,9 @@
 #include <fcntl.h>  // open, for exclusive creation
 #include <ctype.h>  // isspace
 
+// runtime-changeable configuration; must be >= 1; 2000 recommended
+int xmp_writable_padding = 2000;
+
 ////////////////////////////// HELPERS //////////////////////////////
 static void add_packet(xmp_rdata *to, char *packet) {
     to->num_packets += 1;
@@ -281,7 +284,7 @@ int xmp_to_gif(const char *ref, const char *dest, const char *xmp) {
                 wu8(0x21, t, endian);
                 wu8(0xFF, t, endian);
                 fwrite("XMP DataXMP", 1, 11, t);
-                place_block(t, xmp, 1, 2000);
+                place_block(t, xmp, 1, xmp_writable_padding);
                 bigbuf[0] = 1; bigbuf[256] = bigbuf[257] = 0;
                 for(int i=0; i<256; i+=1) bigbuf[i] = 0xFF - i;
                 fwrite(bigbuf, 1, 258, t);
@@ -323,7 +326,7 @@ int xmp_to_gif(const char *ref, const char *dest, const char *xmp) {
                         wu8(0xFF, t, endian);
                         wu8(tmp, t, endian);
                         fwrite("XMP DataXMP", 1, 11, t);
-                        place_block(t, xmp, 1, 2000);
+                        place_block(t, xmp, 1, xmp_writable_padding);
                         bigbuf[0] = 1; bigbuf[256] = bigbuf[257] = 0;
                         for(int i=0; i<256; i+=1) bigbuf[i+1] = 0xFF - i;
                         fwrite(bigbuf, 1, 258, t);
@@ -497,10 +500,10 @@ end:
 static void isobmf_write_xmp(FILE *t, const char *xmp) {
     static const unsigned char refuuid[16] = {0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC};
 
-    wu32(24 + placed_size_of_block(xmp,1,2000), t, 0);
+    wu32(24 + placed_size_of_block(xmp,1,xmp_writable_padding), t, 0);
     fwrite("uuid", 1, 4, t);
     fwrite(refuuid, 1, 16, t);
-    place_block(t, xmp, 1, 2000);
+    place_block(t, xmp, 1, xmp_writable_padding);
 }
 
 int xmp_to_isobmf(const char *ref, const char *dest, const char *xmp) {
@@ -658,9 +661,9 @@ end:
 static void jpeg_write_xmp(FILE *t, const char *xmp, const char *ext) {
     wu8(0xFF, t, 0);
     wu8(0xE1, t, 0);
-    wu16(placed_size_of_block(xmp, 1, 2000)+31, t, 0);
+    wu16(placed_size_of_block(xmp, 1, xmp_writable_padding)+31, t, 0);
     fwrite("http://ns.adobe.com/xap/1.0/", 1, 29, t);
-    place_block(t, xmp, 1, 2000);
+    place_block(t, xmp, 1, xmp_writable_padding);
     if (ext) {
         size_t total = strlen(ext);
         size_t parts = total/65400 + 1;
@@ -1059,9 +1062,9 @@ int xmp_to_webp(const char *ref, const char *dest, const char *xmp) {
     } else goto malformed;
     
     fwrite("XMP ", 1, 4, t);
-    length = placed_size_of_block(xmp, 1, 2000);
+    length = placed_size_of_block(xmp, 1, xmp_writable_padding);
     wu32(length, t, endian);
-    place_block(t, xmp, 1, 2000);
+    place_block(t, xmp, 1, xmp_writable_padding);
     if (length&1) putc(0, t);
 
     unsigned fsize = ftell(t);

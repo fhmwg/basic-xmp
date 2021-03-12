@@ -251,22 +251,23 @@ To get the size of the image requires a recursive box reading, so we define a bo
                 1. read `u32` **width** from *inner*.*data*
         
         __else if__ this is a HEIC or AVIF and *type* = `"meta"`
-            1.  skip 4 bytes
+
+        1.  skip 4 bytes
+        
+            > I can't find these 4 bytes documented, but test files I tried had them, all equal to 0
+        1.  __while__ not at end of *data*
+            1.  read a box from *data* as *inner*
+            1.  __if__ HEIC and *inner*.*type* = `"idat"`
+                1. skip 4 bytes of *inner*.*data*
+                1. read `u16` **width** from *inner*.*data*
+                1. read `u16` **height** from *inner*.*data*
             
-                > I can't find these 4 bytes documented, but test files I tried had them, all equal to 0
-            1.  __while__ not at end of *data*
-                1.  read a box from *data* as *inner*
-                1.  __if__ HEIC and *inner*.*type* = `"idat"`
-                    1. skip 4 bytes of *inner*.*data*
-                    1. read `u16` **width** from *inner*.*data*
-                    1. read `u16` **height** from *inner*.*data*
-                
-                    __else if__ AVIF and *inner*.*type* = `"iprp"`
-                    1. read boxes from *inner*.*data* until find one with *type* = `"ipco"`
-                    1. read boxes from ipco's *data* until find one with *type* = `"ispe"`
-                    1. skip 4 bytes of ispe's data
-                    1. read `u32` **width** from *inner*.*data*
-                    1. read `u32` **height** from *inner*.*data*
+                __else if__ AVIF and *inner*.*type* = `"iprp"`
+                1. read boxes from *inner*.*data* until find one with *type* = `"ipco"`
+                1. read boxes from ipco's *data* until find one with *type* = `"ispe"`
+                1. skip 4 bytes of ispe's data
+                1. read `u32` **width** from *inner*.*data*
+                1. read `u32` **height** from *inner*.*data*
 
         __else if__ *type* = `"uuid"` and first 16 bytes of *data* are `BE` `7A` `CF` `CB` `97` `A9` `42` `E8` `9C` `71` `99` `94` `91` `E3` `AF` `AC` 
         1.  all but first 16 bytes of *data* are **xmp_packet**
@@ -302,43 +303,43 @@ The XMP trailer should have `end="w"` and may benefit from padding.
 
 
 1. __while__ not at end of file
-    1. read `u32` *length~1~*
+    1. read `u32` *length<sub>1</sub>*
     1. read `c8[4]` **type**
-    1.  __if__ *length~1~* = 1
-        1. read `u64` *length~2~*
+    1.  __if__ *length<sub>1</sub>* = 1
+        1. read `u64` *length<sub>2</sub>*
         
-        __else if__ *length~1~* = 0
+        __else if__ *length<sub>1</sub>* = 0
         1. write xmp packet
-        1. let *length~2~* = 16 + number of unread bytes remaining
+        1. let *length<sub>2</sub>* = 16 + number of unread bytes remaining
 
         __else__
-        1. let *length~2~* = *length~1~* + 8
+        1. let *length<sub>2</sub>* = *length<sub>1</sub>* + 8
     1.  __if__ *type* = `"uuid"`
         1.  read `b8[16]` *uuid*
         1.  __if__ *uuid* = `BE` `7A` `CF` `CB` `97` `A9` `42` `E8` `9C` `71` `99` `94` `91` `E3` `AF` `AC`
             1. write xmp packet
-            1. skip *length~2~* − 32 bytes
+            1. skip *length<sub>2</sub>* − 32 bytes
                 
             __else__
-            1. write `u32` *length~1~*
+            1. write `u32` *length<sub>1</sub>*
             1. write `c8[4]` *type*
-            1. __if__ *length~1~* = 1
-                1.   write `u64` *length~2~*
+            1. __if__ *length<sub>1</sub>* = 1
+                1.   write `u64` *length<sub>2</sub>*
             1. write `b8[16]` *uuid*
-            1. copy *length~2~* − 32 bytes
+            1. copy *length<sub>2</sub>* − 32 bytes
 
         __else__
-        1. write `u32` *length~1~*
+        1. write `u32` *length<sub>1</sub>*
         1. write `c8[4]` *type*
-        1. __if__ *length~1~* = 1
-            1. write `u64` *length~2~*
-        1. copy *length~2~* − 16 bytes
+        1. __if__ *length<sub>1</sub>* = 1
+            1. write `u64` *length<sub>2</sub>*
+        1. copy *length<sub>2</sub>* − 16 bytes
 1. write xmp packet
 
 where "write xmp packet" means
 
 __if__ have not yet written **xmp_packet**
-1. __if__ 24 + length of **xmp_data** ≥ 2^32^
+1. __if__ 24 + length of **xmp_data** ≥ 2<sup>32</sup>
     1. write `u32` 1
     1. write `c8[4]` `"uuid"`
     1. write `u64` 30 + length of **xmp_data**
@@ -372,10 +373,10 @@ JPEG has complicated systems to deal with XMP datasets that serialize as larger 
 ## Reading
 
 1. read `b8[2]` equal to `FF` `D8`
-1. read `b8` *m~0~*
+1. read `b8` *m<sub>0</sub>*
 1. __while__ not at end of file
-    1. read `b8`  *m~1~*
-    1. __if__ *m~0~* = `FF` and *m~1~* = `E1`
+    1. read `b8`  *m<sub>1</sub>*
+    1. __if__ *m<sub>0</sub>* = `FF` and *m<sub>1</sub>* = `E1`
         1.  read `u16` *length*
         1.  read `c8[]` *namespace*, stopping after the first `00` byte or *length* − 2 bytes, whichever comes first
         1.  __if__ *namespace* = `"http://ns.adobe.com/xap/1.0/\0"`
@@ -390,17 +391,17 @@ JPEG has complicated systems to deal with XMP datasets that serialize as larger 
             __else__
             1. skip *length* − 2 − length of *namespace* bytes
 
-        __else if__ *m~0~* = `FF` and `C0` ≤ *m~1~* ≤ `CF` and *m~1~* ≠ `C4` or `CC`
+        __else if__ *m<sub>0</sub>* = `FF` and `C0` ≤ *m<sub>1</sub>* ≤ `CF` and *m<sub>1</sub>* ≠ `C4` or `CC`
         1. skip 3 bytes
         1. read `u16` **height**, keeping old **height** if it was larger
         1. read `u16` **width**, keeping old **width** if it was larger
         
         > Keeping larger is due to embedded thumbnails
 
-        __else if__ *m~0~* = `FF` and *m~1~* = `DC`
+        __else if__ *m<sub>0</sub>* = `FF` and *m<sub>1</sub>* = `DC`
         1. skip 2 bytes
         1. read `u16` **height**, keeping old **height** if it was larger
-    1. change *m~0~* to equal *m~1~*
+    1. change *m<sub>0</sub>* to equal *m<sub>1</sub>*
 1. __if__ **xmp_packet** was read<br/> **and if** **xmp_packet** has a field `xmpNote:HasExtendedXMP`<br/> **and if** the value of `xmpNote:HasExtendedXMP` is the label of an extended XMP<br/> **and if** the MD5 checksum of that extended XMP equals its label
     1. add all metadata from that extended XMP to **xmp_packet**
 
@@ -426,10 +427,10 @@ No XMP header, trailer, or padding should be used for **extended_xmp**.
 > So far as I can tell, this will satisfy all specifications, including systems that try to mix several by having multiple variants' "must be first" segments at the front.
 
 1. copy `b8[2]` equal to `FF` `D8`
-1. read `b8` *m~0~*
+1. read `b8` *m<sub>0</sub>*
 1. __while__ not at end of file
-    1. read `b8`  *m~1~*
-    1. __if__ *m~0~* = `FF` and *m~1~* = `E1`
+    1. read `b8`  *m<sub>1</sub>*
+    1. __if__ *m<sub>0</sub>* = `FF` and *m<sub>1</sub>* = `E1`
         1. read `u16` *length*
         1.  read `c8[]` *namespace*, stopping after the first `00` byte or *length* − 2 bytes, whichever comes first
         1.  __if__ *namespace* = `"http://ns.adobe.com/xap/1.0/\0”`
@@ -440,33 +441,33 @@ No XMP header, trailer, or padding should be used for **extended_xmp**.
             1. skip *length* − 37 bytes
                             
             __else__ 
-            1. write `b8` *m~0~*
-            1. write `b8` *m~1~*
+            1. write `b8` *m<sub>0</sub>*
+            1. write `b8` *m<sub>1</sub>*
             1. write `u16` *length*
             1. write *namespace*
             1. copy *length* − 2 − length of *namespace* bytes
-        1. read `b8`  *m~1~*
+        1. read `b8`  *m<sub>1</sub>*
         
-        __else if__ *m~0~* = `FF` and *m~1~* = `ED`
+        __else if__ *m<sub>0</sub>* = `FF` and *m<sub>1</sub>* = `ED`
         1. read `u16` *length*
         1.  read `c8[]` *namespace*, stopping after the first `00` byte or *length* − 2 bytes, whichever comes first
         1.  __if__ *namespace* = `"Photoshop 3.0\0”`
             1. write xmp data
-        1. write `b8` *m~0~*
-        1. write `b8` *m~1~*
+        1. write `b8` *m<sub>0</sub>*
+        1. write `b8` *m<sub>1</sub>*
         1. write `u16` *length*
         1. write *namespace*
         1. copy *length* − 2 − length of *namespace* bytes
-        1. read `b8`  *m~1~*
+        1. read `b8`  *m<sub>1</sub>*
             
-        __else if__ *m~0~* = `FF` and `C0` ≤ *m~1~* ≤ `CF` and *m~1~* ≠ `C4` or `CC`
+        __else if__ *m<sub>0</sub>* = `FF` and `C0` ≤ *m<sub>1</sub>* ≤ `CF` and *m<sub>1</sub>* ≠ `C4` or `CC`
         1. write xmp data
-        1. write `b8` *m~0~*
+        1. write `b8` *m<sub>0</sub>*
         
         __else__
-        1. write `b8` *m~0~*
+        1. write `b8` *m<sub>0</sub>*
 
-    1. change *m~0~* to equal *m~1~*
+    1. change *m<sub>0</sub>* to equal *m<sub>1</sub>*
 
 where "write xmp data" means
 
@@ -610,7 +611,7 @@ TIFF is organized by a linked-list of arrays of tags. The arrays have to be sort
                 1. let **width** = *value*
                 
             __else if__ *tag* = 257
-            1.   __if__ *type* = 3 and little-endian
+            1.  __if__ *type* = 3 and little-endian
                 1. let **height** = `value & 0xFFFF`
                 
                 __else if__ *type* = 3 and big-endian

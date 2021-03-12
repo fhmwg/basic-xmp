@@ -7,7 +7,7 @@ Contents include
 - Manual XMP block location and modification
     - [x] A [guide to doing this by hand](guide.md) with imperative-style pseudocode
     - [ ] A [reference C implementation](xmpblock.c) with [header](xmpblock.h) and [minimal example usage](xmpblock_example.c)
-        - [x] AIF, HEIC, JPEG2000
+        - [x] AVIF, HEIC, JPEG2000
         - [x] GIF
         - [x] JPEG
         - [x] PNG

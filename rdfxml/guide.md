@@ -211,7 +211,7 @@ When an `rdf:li` predicate appears in a document, it is formally shorthand for `
 
 Thus, technically the following are all identical in meaning, though the first should never be written. The third (using only `li`) is recommended.
 
-```
+```xml
 <rdf:Description
   xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'
   xmlns:dc='http://purl.org/dc/elements/1.1/'>
@@ -225,7 +225,7 @@ Thus, technically the following are all identical in meaning, though the first s
 </rdf:Description>
 ```
 
-```
+```xml
 <rdf:Description
   xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'
   xmlns:dc='http://purl.org/dc/elements/1.1/'>
@@ -239,7 +239,7 @@ Thus, technically the following are all identical in meaning, though the first s
 </rdf:Description>
 ```
 
-```
+```xml
 <rdf:Description
   xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'
   xmlns:dc='http://purl.org/dc/elements/1.1/'>

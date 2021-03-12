@@ -76,6 +76,23 @@ int main(int argc, char *argv[]) {
             for(int i=0; i<dat.num_packets; i+=1) {
                 puts(dat.packets[i]);
             }
+            if (xmp_to_other(argv[i], "output.tiff", xmp_to_write))
+                printf("wrote output.tiff\n");
+            else
+                printf("WARNING: output.tiff could not be written\n");
+            continue;
+        }
+
+        dat = xmp_from_other(argv[i]);
+        if (dat.width) {
+            printf("Unknown %s: %lu packets\n", argv[i], dat.num_packets);
+            for(int i=0; i<dat.num_packets; i+=1) {
+                puts(dat.packets[i]);
+            }
+            if (xmp_to_other(argv[i], "output.other", xmp_to_write))
+                printf("wrote output.other\n");
+            else
+                printf("WARNING: output.other could not be written\n");
             continue;
         }
     }

@@ -4,6 +4,7 @@
 #include <string.h> // memcmp, strcmp
 #include <unistd.h> // unlink, if failure writing
 #include <fcntl.h>  // open, for exclusive creation
+#include <ctype.h>  // isspace
 
 ////////////////////////////// HELPERS //////////////////////////////
 static void add_packet(xmp_rdata *to, char *packet) {
@@ -86,6 +87,89 @@ static int copy_bytes(FILE *from, FILE *to, size_t bytes) {
 }
 ////////////////////////////// HELPERS //////////////////////////////
 
+////////////////////////////// WRAPPING /////////////////////////////
+static size_t place_block(FILE *t, const char *data, int wrap, int pad) {
+    long old = ftell(t);
+    if (wrap)
+        fputs("<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n", t);
+    fputs(data, t);
+    for(int i=1; i<pad; i+=1)
+        putc((i%100) ? ' ' : '\n', t);
+    if (wrap) {
+        if (pad) fputs("\n<?xpacket end=\"w\"?>", t);
+        else fputs("\n<?xpacket end=\"r\"?>", t);
+    }
+    return ftell(t) - old;
+}
+static size_t placed_size_of_block(const char *data, int wrap, int pad) {
+    size_t wrote = 0;
+    if (wrap) wrote += 54;
+    wrote += strlen(data);
+    wrote += (pad > 0) ? pad - 1 : 0;
+    if (wrap) wrote += 20;
+    return wrote;
+}
+static char *read_block(FILE *f, long fpos, long size) {
+    char buf[256];
+    long start = fpos, end = fpos + size;
+
+    // skip leading whitespace
+    fseek(f, start, SEEK_SET);
+    while (isspace(getc(f)) && start < end) start += 1;
+    
+    // if present, skip xpacket header (even if malformed)
+    fseek(f, start, SEEK_SET);
+    fread(buf, 1, 16, f);
+    if (!memcmp(buf, "<?xpacket begin=", 16)) {
+        while (getc(f) != '?') {}
+        if (getc(f) != '>') return 0;
+        start = ftell(f);
+        // and whitespace after it
+        while (isspace(getc(f)) && start < end) start += 1;
+    }
+    
+    // skip trailing whitespace
+    int i = -1;
+    while(i < 0 && end > start) {
+        fseek(f, end-sizeof(buf), SEEK_SET);
+        fread(buf, 1, sizeof(buf), f);
+        for(i=sizeof(buf)-1; i>=0 && isspace(buf[i]); i-=1)
+            end -= 1;
+    }
+    // if present, skip xpacket footer (even if malformed)
+    fseek(f, end-19, SEEK_SET);
+    fread(buf, 1, 19, f); 
+    if (!memcmp(buf, "<?xpacket end=", 14) && !memcmp(buf+17, "?>", 2)) {
+        end -= 19;
+        // skip more trailing whitespace
+        i = -1;
+        while(i < 0 && end > start) {
+            fseek(f, end-sizeof(buf), SEEK_SET);
+            fread(buf, 1, sizeof(buf), f);
+            for(i=sizeof(buf)-1; i>=0 && isspace(buf[i]); i-=1)
+                end -= 1;
+        }
+    }
+    if (end > start) {
+        char *ans = malloc(end-start+1);
+        fseek(f, start, SEEK_SET);
+        fread(ans, 1, end-start, f);
+        ans[end-start] = '\0';
+        fseek(f, fpos + size, SEEK_SET);
+        return ans;
+    } else {
+        fseek(f, fpos + size, SEEK_SET);
+        return 0;
+    }
+}
+static char *read_block_delim(FILE *f, long fpos, char delim, size_t *end) {
+    fseek(f, fpos, SEEK_SET);
+    while (getc(f) != delim && !feof(f)) {}
+    if (end) *end = ftell(f)-1;
+    return read_block(f, fpos, ftell(f)-fpos-1);
+}
+////////////////////////////// WRAPPING /////////////////////////////
+
 
 //////////////////////////////// GIF ////////////////////////////////
 xmp_rdata xmp_from_gif(const char *filename) {
@@ -128,11 +212,10 @@ xmp_rdata xmp_from_gif(const char *filename) {
                 if (ru8(f, endian) != 11) goto malformed;
                 char appid[11]; fread(appid, 1, 11, f);
                 if (!memcmp(appid, "XMP DataXMP", 11)) {
-                    char *packet = NULL;
                     size_t len = 0;
-                    len = getdelim(&packet, &len, 0x01, f);
-                    packet[len-1] = '\0';
+                    char *packet = read_block_delim(f, ftell(f), 1, &len);
                     add_packet(&ans, packet);
+                    getc(f); // delimiter, already processed
                     unsigned char trailer[257]; fread(trailer, 1, 257, f);
                     for(int i=0; i<256; i+=1) if (trailer[i] != 0xFF - i) goto malformed;
                     if (trailer[256]) goto malformed;
@@ -198,7 +281,7 @@ int xmp_to_gif(const char *ref, const char *dest, const char *xmp) {
                 wu8(0x21, t, endian);
                 wu8(0xFF, t, endian);
                 fwrite("XMP DataXMP", 1, 11, t);
-                fputs(xmp, t);
+                place_block(t, xmp, 1, 2000);
                 bigbuf[0] = 1; bigbuf[256] = bigbuf[257] = 0;
                 for(int i=0; i<256; i+=1) bigbuf[i] = 0xFF - i;
                 fwrite(bigbuf, 1, 258, t);
@@ -240,7 +323,7 @@ int xmp_to_gif(const char *ref, const char *dest, const char *xmp) {
                         wu8(0xFF, t, endian);
                         wu8(tmp, t, endian);
                         fwrite("XMP DataXMP", 1, 11, t);
-                        fputs(xmp, t);
+                        place_block(t, xmp, 1, 2000);
                         bigbuf[0] = 1; bigbuf[256] = bigbuf[257] = 0;
                         for(int i=0; i<256; i+=1) bigbuf[i+1] = 0xFF - i;
                         fwrite(bigbuf, 1, 258, t);
@@ -389,10 +472,8 @@ xmp_rdata xmp_from_isobmf(const char *filename) {
             fread(uuid, 1, 16, f);
             unsigned char ref[16] = {0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC};
             if (!memcmp(uuid, ref, 16)) {
-                char *xmp = malloc(box.length-15);
-                xmp[box.length-16] = '\0';
-                fread(xmp, 1, box.length-16, f);
-                add_packet(&ans, xmp);
+                char *xmp = read_block(f, ftell(f), box.length-16);
+                if (xmp) add_packet(&ans, xmp);
             }
         }
         fseek(f, box.length + box.fpos, SEEK_SET);
@@ -416,10 +497,10 @@ end:
 static void isobmf_write_xmp(FILE *t, const char *xmp) {
     static const unsigned char refuuid[16] = {0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC};
 
-    wu32(24 + strlen(xmp), t, 0);
+    wu32(24 + placed_size_of_block(xmp,1,2000), t, 0);
     fwrite("uuid", 1, 4, t);
     fwrite(refuuid, 1, 16, t);
-    fputs(xmp, t);
+    place_block(t, xmp, 1, 2000);
 }
 
 int xmp_to_isobmf(const char *ref, const char *dest, const char *xmp) {
@@ -509,10 +590,8 @@ xmp_rdata xmp_from_jpeg(const char *filename) {
             char buf[35];
             size_t got = fread(buf, 1, 35, f);
             if (got > 28 && !strncmp(buf, "http://ns.adobe.com/xap/1.0/", 29)) {
-                fseek(f, 29-got, SEEK_CUR);
-                char *packet = malloc(len-31);
-                fread(packet, 1, len-31, f);
-                add_packet(&ans, packet);
+                char *packet = read_block(f, ftell(f) + 29-got, len-31);
+                if (packet) add_packet(&ans, packet);
             } else if (got > 34 && !strncmp(buf, "http://ns.adobe.com/xmp/extension/", 35)) {
                 // XMP spec says JPEG has two packets, standard and extended; that the extended's GUID is marked; and that the extended follows the standard. But it fails to state that it has *only* two packets, or that all parts of the extended packet must be provided, or that the extended can't be moved earlier.
                 // To avoid needing a GUID:packet mapping, I assume:
@@ -579,9 +658,9 @@ end:
 static void jpeg_write_xmp(FILE *t, const char *xmp, const char *ext) {
     wu8(0xFF, t, 0);
     wu8(0xE1, t, 0);
-    wu16(strlen(xmp)+31, t, 0);
+    wu16(placed_size_of_block(xmp, 1, 2000)+31, t, 0);
     fwrite("http://ns.adobe.com/xap/1.0/", 1, 29, t);
-    fputs(xmp, t);
+    place_block(t, xmp, 1, 2000);
     if (ext) {
         size_t total = strlen(ext);
         size_t parts = total/65400 + 1;
@@ -596,7 +675,7 @@ static void jpeg_write_xmp(FILE *t, const char *xmp, const char *ext) {
         }
     }
 }
-static int xmp_to_jpeg_ext(const char *ref, const char *dest, const char *xmp, const char *ext) {
+int xmp_to_jpeg_ext(const char *ref, const char *dest, const char *xmp, const char *ext) {
 
     int fd = open(dest, O_WRONLY | O_EXCL | O_CREAT, 0644);
     if (fd < 0) return 0;
@@ -765,10 +844,8 @@ xmp_rdata xmp_from_png(const char *filename) {
         if (!memcmp(buf, "iTXt", 4) && length > 22) {
             fread(buf, 1, 22, f);
             if (!memcmp(buf, "XML:com.adobe.xmp\0\0\0\0\0", 22)) {
-                char *xmp = malloc(length-21);
-                xmp[length-22] = '\0';
-                fread(xmp, 1, length-22, f);
-                add_packet(&ans, xmp);
+                char *xmp = read_block(f, ftell(f), length-22);
+                if (xmp) add_packet(&ans, xmp);
             } else {
                 fseek(f, length-22, SEEK_CUR);
             }
@@ -807,12 +884,18 @@ int xmp_to_png(const char *ref, const char *dest, const char *xmp) {
     if (!copy_bytes(f, t, 33)) goto malformed;
 
     if (xmp) {
-        wu32(strlen(xmp)+22, t, endian);
+        wu32((strlen(xmp)+54+20)+22, t, endian);
         unsigned crc = init_crc();
         fwrite("iTXtXML:com.adobe.xmp\0\0\0\0\0", 1, 26, t);
         crc = feed_crc_buf(crc,(unsigned char *)"iTXtXML:com.adobe.xmp\0\0\0\0\0",26);
+        
+        fputs("<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n", t);
+        crc = feed_crc_str(crc, "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
         fputs(xmp, t);
         crc = feed_crc_str(crc,xmp);
+        fputs("\n<?xpacket end=\"r\"?>", t);
+        crc = feed_crc_str(crc,"\n<?xpacket end=\"r\"?>");
+        
         wu32(finish_crc(crc), t, endian);
     }
     
@@ -891,9 +974,8 @@ xmp_rdata xmp_from_webp(const char *filename) {
         if (fread(fourcc, 1, 4, f) != 4) break;
         unsigned length = ru32(f, endian);
         if (!memcmp(fourcc, "XMP ", 4)) {
-            char *xmp = malloc(length);
-            fread(xmp, 1, length, f);
-            add_packet(&ans, xmp);
+            char *xmp = read_block(f, ftell(f), length);
+            if (xmp) add_packet(&ans, xmp);
         } else {
             fseek(f, length, SEEK_CUR);
         }
@@ -977,9 +1059,9 @@ int xmp_to_webp(const char *ref, const char *dest, const char *xmp) {
     } else goto malformed;
     
     fwrite("XMP ", 1, 4, t);
-    length = strlen(xmp);
+    length = placed_size_of_block(xmp, 1, 2000);
     wu32(length, t, endian);
-    fputs(xmp, t);
+    place_block(t, xmp, 1, 2000);
     if (length&1) putc(0, t);
 
     unsigned fsize = ftell(t);
@@ -1014,12 +1096,14 @@ xmp_rdata xmp_from_tiff(const char *filename) {
         1, 1, 2, 4, 8, // signed byte/undef/short/int/rational
         4, 8 // float
     };
+    /*
     static const char *name_of_type[13] = {
         "error",
         "u8", "ascii", "u16", "u32", "ru32/u32",
         "i8", "binary", "i16", "i32", "ri32/i32",
         "float", "double"
     };
+    */
     
     char endflag[2]; fread(endflag, 1, 2, f);
     int endian = 1;
@@ -1031,7 +1115,6 @@ xmp_rdata xmp_from_tiff(const char *filename) {
     while(offset > 0) {
         fseek(f, offset, SEEK_SET);
         int ifd_count = ru16(f, endian);
-fprintf(stderr, "count: %d\n", ifd_count);
         if (ifd_count < 0) goto malformed;
         for(int i=0; i<ifd_count; i+=1) {
             int tag = ru16(f, endian);
@@ -1040,7 +1123,6 @@ fprintf(stderr, "count: %d\n", ifd_count);
             unsigned count = ru32(f, endian);
             unsigned length = count * length_of_type[type];
             unsigned value = ru32(f, endian);
-fprintf(stderr, "%lx: %d %s %u (%u) %u\n", ftell(f)-12, tag, name_of_type[type], count, length, value);
             if (tag == 256) {
                 if (type == 3 && !endian) ans.width = (value>>16)&0xFFFF;
                 else if (type == 3 && endian) ans.width = value&0xFFFF;
@@ -1059,15 +1141,12 @@ fprintf(stderr, "%lx: %d %s %u (%u) %u\n", ftell(f)-12, tag, name_of_type[type],
                 }
             } else if (tag == 700 && (type == 1 || type == 7) && length > 4) {
                 long back = ftell(f);
-                fseek(f, value, SEEK_SET);
-                char *xmp = malloc(length);
-                fread(xmp, 1, length, f);
-                add_packet(&ans, xmp);
+                char *xmp = read_block(f, value, length);
+                if (xmp) add_packet(&ans, xmp);
                 fseek(f, back, SEEK_SET);
             }
         }
         offset = ru32(f, endian);
-fprintf(stderr, "offset: %ld\n", offset);
     }
     if (offset == 0) goto end;
 
@@ -1090,5 +1169,93 @@ end:
 //////////////////////////////// SVG ////////////////////////////////
 
 /////////////////////////////// OTHER ///////////////////////////////
+xmp_rdata xmp_from_other(const char *filename) {
+    FILE *f = fopen(filename, "rb");
+    xmp_rdata ans = {0, 0, 0, NULL};
+    
+    const char *magic = "W5M0MpCehiHzreSzNTczkc9d'?>";
+    int midx = 0;
+    while(magic[midx] && !feof(f)) {
+        int c = getc(f);
+        if (c == magic[midx]) midx += 1;
+        else if (c == '"' && magic[midx] == '\'') midx += 1;
+        else midx = 0;
+    }
+    if (!magic[midx]) {
+        long start = ftell(f);
+        magic = "<?xpacket end='w'?>";
+        midx = 0;
+        while(magic[midx] && !feof(f)) {
+            int c = getc(f);
+            if (c == magic[midx]) midx += 1;
+            else if (c == '"' && magic[midx] == '\'') midx += 1;
+            else if (c == 'r' && magic[midx] == 'w') midx += 1;
+            else midx = 0;
+        }
+        long end = ftell(f) - 19;
+        add_packet(&ans, read_block(f, start, end-start));
+        ans.width = -1;
+        ans.height = -1;
+    }
+    fclose(f);
+    return ans;
+}
+
+int xmp_to_other(const char *ref, const char *dest, const char *xmp) {
+    int fd = open(dest, O_WRONLY | O_EXCL | O_CREAT, 0644);
+    if (fd < 0) return 0;
+    FILE *f = fopen(ref, "rb");
+    FILE *t = fdopen(fd, "wb");
+
+    size_t needed = strlen(xmp);
+    while (!feof(f)) {
+        const char *magic = "W5M0MpCehiHzreSzNTczkc9d'?>";
+        int midx = 0;
+        while(magic[midx] && !feof(f)) {
+            int c = getc(f);
+            if (c == magic[midx]) midx += 1;
+            else if (c == '"' && magic[midx] == '\'') midx += 1;
+            else midx = 0;
+        }
+        if (!magic[midx]) {
+            long start = ftell(f);
+            magic = "<?xpacket end='w'?>";
+            midx = 0;
+            int ok = 1;
+            while(magic[midx] && !feof(f)) {
+                int c = getc(f);
+                if (c == magic[midx]) midx += 1;
+                else if (c == '"' && magic[midx] == '\'') midx += 1;
+                else if (c == 'r' && magic[midx] == 'w') { midx += 1; ok = 0; }
+                else midx = 0;
+            }
+            long end = ftell(f) - 19;
+            if (ok && !magic[midx] && end-start >= needed) {
+                fseek(f, 0, SEEK_SET);
+                copy_bytes(f, t, start);
+                fputs(xmp, t);
+                for(size_t i=needed; i<end-start; i+=1)
+                    putc((i%100) ? ' ' : '\n', t);
+
+                fseek(f, 0, SEEK_END);
+                long fsize = ftell(f);
+                fseek(f, end, SEEK_SET);
+                copy_bytes(f, t, fsize-end);
+                
+                goto end;
+            }
+        }
+    }
+
+    fclose(f);
+    fclose(t);
+    unlink(dest);
+    return 0;
+
+end:
+    fclose(f);
+    fclose(t);
+    return 1;
+}
 /////////////////////////////// OTHER ///////////////////////////////
 

@@ -14,8 +14,8 @@ Contents include
         - [ ] SVG
         - [x] TIFF (read only)
         - [x] WEBP
-        - [ ] Unknown
-        - [ ] apply `<?xpacket?>` wrappers and space padding
+        - [x] Unknown
+        - [x] apply `<?xpacket?>` wrappers and space padding
 - [ ] Guides to doing this with command-line tools:
     - [ ] Exiftool
     - [ ] exiv2
